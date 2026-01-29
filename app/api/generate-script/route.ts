@@ -33,6 +33,21 @@ export async function POST(request: NextRequest) {
     }
 
     const script = await generateScript(theme, searchContext);
+
+    // Add debug info in development or when debug param is present
+    const url = new URL(request.url);
+    if (url.searchParams.get("debug") === "1") {
+      return NextResponse.json({
+        ...script,
+        _debug: {
+          requiresSearch,
+          searchQuery,
+          tavilyKeySet: !!process.env.TAVILY_API_KEY,
+          searchContextLength: searchContext?.length || 0,
+        },
+      });
+    }
+
     return NextResponse.json(script);
   } catch (error) {
     console.error("Error generating script:", error);
