@@ -1,5 +1,3 @@
-const TAVILY_API_KEY = process.env.TAVILY_API_KEY;
-
 export interface SearchResult {
   title: string;
   url: string;
@@ -12,7 +10,9 @@ export interface TavilySearchResponse {
 }
 
 export async function searchWeb(query: string): Promise<TavilySearchResponse> {
-  if (!TAVILY_API_KEY) {
+  const apiKey = process.env.TAVILY_API_KEY;
+
+  if (!apiKey) {
     console.warn("TAVILY_API_KEY is not set, returning empty results");
     return { results: [] };
   }
@@ -23,7 +23,7 @@ export async function searchWeb(query: string): Promise<TavilySearchResponse> {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      api_key: TAVILY_API_KEY,
+      api_key: apiKey,
       query,
       search_depth: "basic",
       include_answer: true,

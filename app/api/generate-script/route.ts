@@ -21,7 +21,10 @@ export async function POST(request: NextRequest) {
     // Perform web search if theme requires it
     if (requiresSearch && searchQuery) {
       console.log("Searching for:", searchQuery);
+      console.log("TAVILY_API_KEY set:", !!process.env.TAVILY_API_KEY);
       const searchResults = await searchWeb(searchQuery);
+      console.log("Search results count:", searchResults.results.length);
+      console.log("Search answer:", searchResults.answer ? "yes" : "no");
       searchContext = formatSearchResultsForPrompt(
         searchResults.results,
         searchResults.answer
