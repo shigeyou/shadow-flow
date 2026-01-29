@@ -7,6 +7,7 @@ export interface SearchResult {
 export interface TavilySearchResponse {
   results: SearchResult[];
   answer?: string;
+  error?: string;
 }
 
 export async function searchWeb(query: string): Promise<TavilySearchResponse> {
@@ -32,8 +33,9 @@ export async function searchWeb(query: string): Promise<TavilySearchResponse> {
   });
 
   if (!response.ok) {
-    console.error("Tavily search error:", response.status);
-    return { results: [] };
+    const errorText = await response.text();
+    console.error("Tavily search error:", response.status, errorText);
+    return { results: [], error: `${response.status}: ${errorText}` };
   }
 
   const data = await response.json();

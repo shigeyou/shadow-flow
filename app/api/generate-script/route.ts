@@ -18,6 +18,8 @@ export async function POST(request: NextRequest) {
 
     let searchContext: string | undefined;
 
+    let searchError: string | undefined;
+
     // Perform web search if theme requires it
     if (requiresSearch && searchQuery) {
       console.log("Searching for:", searchQuery);
@@ -25,6 +27,10 @@ export async function POST(request: NextRequest) {
       const searchResults = await searchWeb(searchQuery);
       console.log("Search results count:", searchResults.results.length);
       console.log("Search answer:", searchResults.answer ? "yes" : "no");
+      if (searchResults.error) {
+        console.error("Search error:", searchResults.error);
+        searchError = searchResults.error;
+      }
       searchContext = formatSearchResultsForPrompt(
         searchResults.results,
         searchResults.answer
@@ -44,6 +50,7 @@ export async function POST(request: NextRequest) {
           searchQuery,
           tavilyKeySet: !!process.env.TAVILY_API_KEY,
           searchContextLength: searchContext?.length || 0,
+          searchError,
         },
       });
     }
