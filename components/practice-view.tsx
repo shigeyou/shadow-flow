@@ -53,24 +53,58 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Singleton audio element for mobile compatibility
+let sharedAudio: HTMLAudioElement | null = null;
+
+function getSharedAudio(): HTMLAudioElement {
+  if (!sharedAudio) {
+    sharedAudio = new Audio();
+  }
+  return sharedAudio;
+}
+
 // Helper to play audio and wait for it to finish
 function playAudioAndWait(audioData: ArrayBuffer): Promise<void> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const blob = new Blob([audioData], { type: "audio/mp3" });
     const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
+    const audio = getSharedAudio();
 
-    audio.onended = () => {
-      URL.revokeObjectURL(url);
+    // Clean up previous source
+    if (audio.src) {
+      URL.revokeObjectURL(audio.src);
+    }
+
+    audio.src = url;
+
+    const onEnded = () => {
+      cleanup();
       resolve();
     };
 
-    audio.onerror = () => {
-      URL.revokeObjectURL(url);
-      resolve();
+    const onError = () => {
+      cleanup();
+      console.error("Audio playback error");
+      resolve(); // Still resolve to continue the sequence
     };
 
-    audio.play();
+    const cleanup = () => {
+      audio.removeEventListener("ended", onEnded);
+      audio.removeEventListener("error", onError);
+    };
+
+    audio.addEventListener("ended", onEnded);
+    audio.addEventListener("error", onError);
+
+    // Handle mobile autoplay restrictions
+    const playPromise = audio.play();
+    if (playPromise !== undefined) {
+      playPromise.catch((error) => {
+        console.error("Playback failed:", error);
+        cleanup();
+        resolve(); // Continue even if playback fails
+      });
+    }
   });
 }
 
