@@ -9,13 +9,26 @@ export async function generateScript(
   theme: string,
   searchContext?: string
 ): Promise<Script> {
+  const hasSearchContext = !!searchContext;
+
   const contextSection = searchContext
-    ? `\n\nUse the following recent information to create relevant, up-to-date sentences:\n${searchContext}\n`
+    ? `\n\n${searchContext}\n`
+    : "";
+
+  const specificRequirements = hasSearchContext
+    ? `CRITICAL REQUIREMENTS FOR NEWS-BASED CONTENT:
+- You MUST include specific names, companies, products, or events from the news articles above
+- You MUST mention actual facts, numbers, or dates from the articles
+- Each sentence should teach the user about a REAL, CURRENT topic from the news
+- Do NOT write generic sentences - every sentence must reference specific information from the articles
+- Example: Instead of "AI is becoming more popular", write "OpenAI's GPT-5 was announced last week with impressive new capabilities"
+
+`
     : "";
 
   const prompt = `Generate 5 natural English sentences for shadowing practice on the theme: "${theme}".${contextSection}
 
-Requirements:
+${specificRequirements}General Requirements:
 - Each sentence should be 10-20 words
 - Use natural, everyday English expressions
 - Include a mix of statements, questions, and responses
@@ -33,6 +46,10 @@ Only return valid JSON, no markdown or explanation.`;
 
   const url = `${endpoint}openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`;
 
+  const systemMessage = hasSearchContext
+    ? "You are an English teacher creating shadowing practice materials based on current news. Your sentences MUST include specific details (names, dates, facts) from the provided news articles. Generic sentences are NOT acceptable. Always respond with valid JSON only."
+    : "You are an English teacher creating shadowing practice materials. Always respond with valid JSON only.";
+
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -43,8 +60,7 @@ Only return valid JSON, no markdown or explanation.`;
       messages: [
         {
           role: "system",
-          content:
-            "You are an English teacher creating shadowing practice materials. Always respond with valid JSON only.",
+          content: systemMessage,
         },
         { role: "user", content: prompt },
       ],

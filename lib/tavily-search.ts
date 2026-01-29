@@ -51,18 +51,20 @@ export function formatSearchResultsForPrompt(
     return "";
   }
 
-  let context = "Based on the latest information from the internet:\n\n";
+  let context = "=== LATEST NEWS AND INFORMATION (USE THESE SPECIFIC DETAILS) ===\n\n";
 
   if (answer) {
-    context += `Summary: ${answer}\n\n`;
+    context += `Overview: ${answer}\n\n`;
   }
 
   if (results.length > 0) {
-    context += "Key points from recent sources:\n";
+    context += "Specific news items to reference:\n\n";
     results.forEach((result, index) => {
-      context += `${index + 1}. ${result.title}: ${result.content.slice(0, 200)}...\n`;
+      context += `[Article ${index + 1}] ${result.title}\n${result.content}\n\n`;
     });
   }
+
+  context += "=== END OF NEWS ===\n";
 
   return context;
 }
