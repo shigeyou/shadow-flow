@@ -74,6 +74,12 @@ export const PRESET_THEMES: Theme[] = [
     nameJa: "日本紹介",
     description: "Explaining Japanese culture, traditions, and attractions",
   },
+  {
+    id: "aromatherapy",
+    name: "Aromatherapy",
+    nameJa: "アロマテラピー",
+    description: "Essential oils, relaxation, and wellness conversations",
+  },
 
   // Knowledge-building themes (search-powered, 12 themes)
   // Note: searchQuery will have today's date appended dynamically

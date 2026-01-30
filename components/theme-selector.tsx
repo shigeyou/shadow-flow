@@ -26,6 +26,7 @@ import {
   BarChart3,
   Search,
   Repeat,
+  Flower2,
 } from "lucide-react";
 
 interface ThemeSelectorProps {
@@ -43,6 +44,7 @@ const themeIcons: Record<string, React.ReactNode> = {
   shopping: <ShoppingBag className="h-5 w-5" />,
   smalltalk: <MessageCircle className="h-5 w-5" />,
   japan: <Flag className="h-5 w-5" />,
+  aromatherapy: <Flower2 className="h-5 w-5" />,
   // Search themes (12 themes)
   "ai-global": <Bot className="h-5 w-5" />,
   "ai-japan": <Bot className="h-5 w-5" />,
