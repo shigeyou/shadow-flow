@@ -154,7 +154,10 @@ export function PracticeView({
 
   // Auto-play mode logic
   const startAutoPlay = useCallback(async () => {
-    if (isAutoPlaying) return;
+    // Stop any existing playback first
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
 
     setIsAutoPlaying(true);
     abortControllerRef.current = new AbortController();
@@ -237,20 +240,18 @@ export function PracticeView({
     };
   }, []);
 
-  // Auto-start when in continuous mode or when script changes in continuous mode
+  // Auto-start when in continuous mode and script changes
   useEffect(() => {
-    if (continuousMode && !hasStartedRef.current) {
-      hasStartedRef.current = true;
-      setCurrentIndex(0);
-      startAutoPlay();
+    if (continuousMode) {
+      // Small delay to ensure component is fully rendered
+      const timer = setTimeout(() => {
+        setCurrentIndex(0);
+        startAutoPlay();
+      }, 500);
+      return () => clearTimeout(timer);
     }
-  }, [continuousMode, startAutoPlay]);
-
-  // Reset hasStartedRef when script changes (new theme loaded)
-  useEffect(() => {
-    hasStartedRef.current = false;
-    setCurrentIndex(0);
-  }, [script]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [script.theme, continuousMode]); // Trigger when theme changes in continuous mode
 
   const handleToggleRecording = useCallback(async () => {
     if (recorder.isRecording) {
