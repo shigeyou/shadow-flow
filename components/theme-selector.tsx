@@ -120,11 +120,8 @@ export function ThemeSelector({
           <CardTitle className="flex items-center gap-2">
             <Search className="h-5 w-5 text-blue-500" />
             <Badge className="bg-blue-500">Live</Badge>
-            Knowledge Building
+            Latest News and Trends from the Internet
           </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Latest news and trends from the internet
-          </p>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
