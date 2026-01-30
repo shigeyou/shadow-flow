@@ -4,7 +4,6 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Slider } from "@/components/ui/slider";
 import { Script, Sentence } from "@/types";
 import { useAudioPlayer } from "@/hooks/use-audio-player";
 import { useRecorder } from "@/hooks/use-recorder";
@@ -446,10 +445,11 @@ export function PracticeView({
             </div>
             <div className="flex items-center gap-4">
               <span className="text-xs text-muted-foreground">0.70x</span>
-              <Slider
-                value={[speed]}
-                onValueChange={(value) => {
-                  const newSpeed = value[0];
+              <input
+                type="range"
+                value={speed}
+                onChange={(e) => {
+                  const newSpeed = parseFloat(e.target.value);
                   setSpeed(newSpeed);
                   audioPlayer.setPlaybackRate(newSpeed);
                 }}
@@ -457,7 +457,7 @@ export function PracticeView({
                 max={2.0}
                 step={0.05}
                 disabled={isAutoPlaying}
-                className="flex-1"
+                className="flex-1 h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
               />
               <span className="text-xs text-muted-foreground">2.00x</span>
             </div>
