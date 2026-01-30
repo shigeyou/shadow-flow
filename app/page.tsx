@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import { ThemeSelector } from "@/components/theme-selector";
-import { PracticeView } from "@/components/practice-view";
+import { PracticeView, unlockAudio } from "@/components/practice-view";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Script, Theme, PRESET_THEMES } from "@/types";
 import { Headphones } from "lucide-react";
@@ -71,6 +71,9 @@ export default function Home() {
   };
 
   const handleStartContinuousMode = async () => {
+    // Unlock audio on user interaction for mobile browsers
+    await unlockAudio();
+
     setContinuousMode(true);
     setCurrentThemeIndex(0);
     newsHistoryRef.current = []; // Clear history for new continuous session

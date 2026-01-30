@@ -53,100 +53,107 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Singleton audio element for mobile compatibility
-let sharedAudio: HTMLAudioElement | null = null;
+// Audio context for mobile compatibility
+let audioContext: AudioContext | null = null;
+let audioUnlocked = false;
 
-function getSharedAudio(): HTMLAudioElement {
-  if (!sharedAudio) {
-    sharedAudio = new Audio();
-  }
-  return sharedAudio;
-}
-
-// Helper to play audio and wait for it to finish
-function playAudioAndWait(audioData: ArrayBuffer): Promise<void> {
+// Unlock audio on user interaction (call this on button click)
+export function unlockAudio(): Promise<void> {
   return new Promise((resolve) => {
-    const blob = new Blob([audioData], { type: "audio/mp3" });
-    const url = URL.createObjectURL(blob);
-    const audio = getSharedAudio();
-
-    let resolved = false;
-    let playAttempted = false;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-
-    const doResolve = () => {
-      if (resolved) return;
-      resolved = true;
-      if (timeoutId !== null) {
-        clearTimeout(timeoutId);
-        timeoutId = null;
-      }
-      audio.onended = null;
-      audio.onerror = null;
-      audio.oncanplaythrough = null;
-      audio.onloadeddata = null;
-      // Delay URL cleanup
-      setTimeout(() => {
-        try {
-          URL.revokeObjectURL(url);
-        } catch (e) {
-          // Ignore errors
-        }
-      }, 1000);
+    if (audioUnlocked) {
       resolve();
-    };
-
-    const tryPlay = () => {
-      if (playAttempted || resolved) return;
-      playAttempted = true;
-
-      const playPromise = audio.play();
-      if (playPromise !== undefined) {
-        playPromise.catch((error) => {
-          console.error("Playback failed:", error);
-          doResolve();
-        });
-      }
-    };
-
-    // Use property-based event handlers (more reliable on mobile)
-    audio.onended = doResolve;
-    audio.onerror = () => {
-      console.error("Audio playback error");
-      doResolve();
-    };
-
-    // Try both events for better mobile compatibility
-    audio.oncanplaythrough = tryPlay;
-    audio.onloadeddata = tryPlay;
-
-    // Clean up previous source
-    try {
-      audio.pause();
-      audio.currentTime = 0;
-    } catch (e) {
-      // Ignore errors
+      return;
     }
 
-    // Set source and load
-    audio.src = url;
-    audio.load();
+    // Create audio context
+    if (!audioContext) {
+      audioContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+    }
 
-    // Try to play after a short delay as fallback
-    setTimeout(() => {
-      if (!playAttempted && !resolved) {
-        console.log("Attempting fallback play");
-        tryPlay();
-      }
-    }, 500);
+    // Resume audio context if suspended
+    if (audioContext.state === 'suspended') {
+      audioContext.resume().then(() => {
+        audioUnlocked = true;
+        console.log("Audio context unlocked");
+        resolve();
+      }).catch(() => {
+        resolve();
+      });
+    } else {
+      audioUnlocked = true;
+      resolve();
+    }
 
-    // Fallback timeout
-    timeoutId = setTimeout(() => {
-      if (!resolved) {
-        console.warn("Audio playback timeout - continuing");
-        doResolve();
+    // Also create and play a silent buffer to unlock
+    try {
+      const buffer = audioContext.createBuffer(1, 1, 22050);
+      const source = audioContext.createBufferSource();
+      source.buffer = buffer;
+      source.connect(audioContext.destination);
+      source.start(0);
+    } catch (e) {
+      console.log("Silent buffer play failed:", e);
+    }
+  });
+}
+
+// Helper to play audio and wait for it to finish using Web Audio API
+function playAudioAndWait(audioData: ArrayBuffer): Promise<void> {
+  return new Promise(async (resolve) => {
+    try {
+      // Ensure audio context exists
+      if (!audioContext) {
+        audioContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
       }
-    }, 30000);
+
+      // Resume if suspended
+      if (audioContext.state === 'suspended') {
+        await audioContext.resume();
+      }
+
+      // Decode the audio data
+      const audioBuffer = await audioContext.decodeAudioData(audioData.slice(0));
+
+      // Create source and play
+      const source = audioContext.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioContext.destination);
+
+      source.onended = () => {
+        resolve();
+      };
+
+      source.start(0);
+
+      // Fallback timeout
+      setTimeout(() => {
+        resolve();
+      }, 30000);
+
+    } catch (error) {
+      console.error("Web Audio playback failed:", error);
+      // Fallback to HTML5 Audio
+      try {
+        const blob = new Blob([audioData], { type: "audio/mp3" });
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+
+        audio.onended = () => {
+          URL.revokeObjectURL(url);
+          resolve();
+        };
+
+        audio.onerror = () => {
+          URL.revokeObjectURL(url);
+          resolve();
+        };
+
+        await audio.play();
+      } catch (fallbackError) {
+        console.error("Fallback audio also failed:", fallbackError);
+        resolve();
+      }
+    }
   });
 }
 
@@ -202,6 +209,9 @@ export function PracticeView({
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
+
+    // Unlock audio for mobile browsers
+    await unlockAudio();
 
     setIsAutoPlaying(true);
     abortControllerRef.current = new AbortController();
