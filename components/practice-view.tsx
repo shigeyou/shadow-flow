@@ -18,6 +18,8 @@ import {
   ArrowLeft,
   Loader2,
   RefreshCw,
+  Minus,
+  Plus,
 } from "lucide-react";
 
 interface PracticeViewProps {
@@ -484,8 +486,19 @@ export function PracticeView({
               <span className="text-sm font-medium">Playback Speed</span>
               <Badge variant="secondary" className="min-w-[4rem] text-center">{speed.toFixed(2)}x</Badge>
             </div>
-            <div className="flex items-center gap-4">
-              <span className="text-xs text-muted-foreground">0.70x</span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-10 w-10 shrink-0"
+                onClick={() => {
+                  const newSpeed = Math.max(0.7, speed - 0.05);
+                  setSpeed(Math.round(newSpeed * 100) / 100);
+                  audioPlayer.setPlaybackRate(newSpeed);
+                }}
+              >
+                <Minus className="h-4 w-4" />
+              </Button>
               <input
                 type="range"
                 value={speed}
@@ -497,10 +510,21 @@ export function PracticeView({
                 min={0.7}
                 max={2.0}
                 step={0.05}
-                disabled={isAutoPlaying}
-                className="flex-1 h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                className="flex-1 h-3 bg-muted rounded-lg appearance-none cursor-pointer accent-primary touch-pan-x"
+                style={{ touchAction: 'pan-x' }}
               />
-              <span className="text-xs text-muted-foreground">2.00x</span>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-10 w-10 shrink-0"
+                onClick={() => {
+                  const newSpeed = Math.min(2.0, speed + 0.05);
+                  setSpeed(Math.round(newSpeed * 100) / 100);
+                  audioPlayer.setPlaybackRate(newSpeed);
+                }}
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
             </div>
           </div>
         </CardContent>
