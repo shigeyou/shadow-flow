@@ -50,9 +50,34 @@ async function synthesizeSpeech(
   return response.arrayBuffer();
 }
 
-// Helper to wait for a duration
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+// Helper to wait for a duration with pause support
+function wait(ms: number, isPausedRef: React.RefObject<boolean>, abortSignal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    let elapsed = 0;
+    const interval = 100; // Check every 100ms
+
+    const tick = () => {
+      if (abortSignal?.aborted) {
+        resolve();
+        return;
+      }
+
+      if (isPausedRef.current) {
+        // If paused, just schedule next check without incrementing elapsed
+        setTimeout(tick, interval);
+        return;
+      }
+
+      elapsed += interval;
+      if (elapsed >= ms) {
+        resolve();
+      } else {
+        setTimeout(tick, interval);
+      }
+    };
+
+    setTimeout(tick, interval);
+  });
 }
 
 // Shared audio element for background playback support
@@ -70,7 +95,14 @@ function getSharedAudio(): HTMLAudioElement {
 }
 
 // Setup Media Session for lock screen controls
-function setupMediaSession(title: string, onStop?: () => void) {
+function setupMediaSession(
+  title: string,
+  options?: {
+    onStop?: () => void;
+    onPause?: () => void;
+    onResume?: () => void;
+  }
+) {
   if ('mediaSession' in navigator) {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: title,
@@ -79,20 +111,28 @@ function setupMediaSession(title: string, onStop?: () => void) {
     });
 
     navigator.mediaSession.setActionHandler('pause', () => {
-      const audio = getSharedAudio();
-      audio.pause();
-      if (onStop) onStop();
+      if (options?.onPause) {
+        options.onPause();
+      } else {
+        const audio = getSharedAudio();
+        audio.pause();
+        if (options?.onStop) options.onStop();
+      }
     });
 
     navigator.mediaSession.setActionHandler('stop', () => {
       const audio = getSharedAudio();
       audio.pause();
-      if (onStop) onStop();
+      if (options?.onStop) options.onStop();
     });
 
     navigator.mediaSession.setActionHandler('play', () => {
-      const audio = getSharedAudio();
-      audio.play().catch(() => {});
+      if (options?.onResume) {
+        options.onResume();
+      } else {
+        const audio = getSharedAudio();
+        audio.play().catch(() => {});
+      }
     });
   }
 }
@@ -124,7 +164,12 @@ export function unlockAudio(): Promise<void> {
 }
 
 // Helper to play audio and wait for it to finish using HTML5 Audio (better for background)
-function playAudioAndWait(audioData: ArrayBuffer): Promise<void> {
+// Supports pause/resume via isPausedRef
+function playAudioAndWait(
+  audioData: ArrayBuffer,
+  isPausedRef?: React.RefObject<boolean>,
+  abortSignal?: AbortSignal
+): Promise<void> {
   return new Promise((resolve) => {
     const blob = new Blob([audioData], { type: "audio/mp3" });
     const url = URL.createObjectURL(blob);
@@ -132,11 +177,13 @@ function playAudioAndWait(audioData: ArrayBuffer): Promise<void> {
 
     let resolved = false;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let pauseCheckInterval: ReturnType<typeof setInterval> | null = null;
 
     const cleanup = () => {
       if (resolved) return;
       resolved = true;
       if (timeoutId) clearTimeout(timeoutId);
+      if (pauseCheckInterval) clearInterval(pauseCheckInterval);
       audio.onended = null;
       audio.onerror = null;
       audio.oncanplaythrough = null;
@@ -162,21 +209,61 @@ function playAudioAndWait(audioData: ArrayBuffer): Promise<void> {
 
     audio.oncanplaythrough = () => {
       audio.oncanplaythrough = null;
+
+      // Check pause state before playing
+      if (isPausedRef?.current) {
+        // Wait until unpaused to start playing
+        const waitForUnpause = setInterval(() => {
+          if (abortSignal?.aborted) {
+            clearInterval(waitForUnpause);
+            cleanup();
+            return;
+          }
+          if (!isPausedRef.current) {
+            clearInterval(waitForUnpause);
+            audio.play().catch((e) => {
+              console.error("Play failed:", e);
+              cleanup();
+            });
+          }
+        }, 100);
+        return;
+      }
+
       audio.play().catch((e) => {
         console.error("Play failed:", e);
         cleanup();
       });
     };
 
+    // Monitor pause state during playback
+    if (isPausedRef) {
+      pauseCheckInterval = setInterval(() => {
+        if (abortSignal?.aborted) {
+          cleanup();
+          return;
+        }
+        if (resolved) {
+          if (pauseCheckInterval) clearInterval(pauseCheckInterval);
+          return;
+        }
+        if (isPausedRef.current && !audio.paused) {
+          audio.pause();
+        } else if (!isPausedRef.current && audio.paused && !audio.ended) {
+          audio.play().catch(() => {});
+        }
+      }, 100);
+    }
+
     audio.load();
 
-    // Fallback timeout
+    // Fallback timeout (extended for pause support)
     timeoutId = setTimeout(() => {
       if (!resolved) {
         console.warn("Audio timeout");
         cleanup();
       }
-    }, 30000);
+    }, 120000); // 2 minutes max
   });
 }
 
@@ -196,8 +283,11 @@ export function PracticeView({
 
   // Auto-play mode state
   const [isAutoPlaying, setIsAutoPlaying] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [autoPlayStatus, setAutoPlayStatus] = useState("");
   const abortControllerRef = useRef<AbortController | null>(null);
+  const isPausedRef = useRef(false);
+  const pauseResolverRef = useRef<(() => void) | null>(null);
   const hasStartedRef = useRef(false);
 
   const audioPlayer = useAudioPlayer();
@@ -226,6 +316,27 @@ export function PracticeView({
     [audioPlayer, speed]
   );
 
+  // Pause/Resume callbacks
+  const pauseAutoPlay = useCallback(() => {
+    isPausedRef.current = true;
+    setIsPaused(true);
+    // Pause audio immediately
+    const audio = getSharedAudio();
+    if (audio && !audio.paused) {
+      audio.pause();
+    }
+  }, []);
+
+  const resumeAutoPlay = useCallback(() => {
+    isPausedRef.current = false;
+    setIsPaused(false);
+    // Resume audio if it was playing
+    const audio = getSharedAudio();
+    if (audio && audio.paused && !audio.ended && audio.src) {
+      audio.play().catch(() => {});
+    }
+  }, []);
+
   // Auto-play mode logic
   const startAutoPlay = useCallback(async () => {
     // Stop any existing playback first
@@ -233,21 +344,48 @@ export function PracticeView({
       abortControllerRef.current.abort();
     }
 
+    // Reset pause state
+    isPausedRef.current = false;
+    setIsPaused(false);
+
     // Unlock audio for mobile browsers
     await unlockAudio();
 
     // Setup media session for lock screen controls and background playback
-    setupMediaSession(script.theme, () => {
-      // On stop from lock screen
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-      setIsAutoPlaying(false);
-      setAutoPlayStatus("");
+    setupMediaSession(script.theme, {
+      onStop: () => {
+        // On stop from lock screen
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+        }
+        setIsAutoPlaying(false);
+        setIsPaused(false);
+        isPausedRef.current = false;
+        setAutoPlayStatus("");
+      },
+      onPause: () => {
+        // On pause from lock screen
+        isPausedRef.current = true;
+        setIsPaused(true);
+        const audio = getSharedAudio();
+        if (audio && !audio.paused) {
+          audio.pause();
+        }
+      },
+      onResume: () => {
+        // On resume from lock screen
+        isPausedRef.current = false;
+        setIsPaused(false);
+        const audio = getSharedAudio();
+        if (audio && audio.paused && !audio.ended && audio.src) {
+          audio.play().catch(() => {});
+        }
+      },
     });
 
     setIsAutoPlaying(true);
     abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
 
     try {
       // Skip if no valid sentences
@@ -258,7 +396,7 @@ export function PracticeView({
 
       for (let i = 0; i < sentences.length; i++) {
         // Check if aborted
-        if (abortControllerRef.current?.signal.aborted) break;
+        if (signal.aborted) break;
 
         const sentence = sentences[i];
 
@@ -275,38 +413,38 @@ export function PracticeView({
         const audioData = await synthesizeSpeech(sentence.text, speed);
 
         // First play
-        if (abortControllerRef.current?.signal.aborted) break;
-        setAutoPlayStatus(`Playing sentence ${i + 1} (1st time)`);
-        await playAudioAndWait(audioData);
+        if (signal.aborted) break;
+        setAutoPlayStatus(isPausedRef.current ? "Paused" : `Playing sentence ${i + 1} (1st time)`);
+        await playAudioAndWait(audioData, isPausedRef, signal);
 
         // Pause for shadowing
-        if (abortControllerRef.current?.signal.aborted) break;
-        setAutoPlayStatus(`Pause - Shadow sentence ${i + 1}...`);
-        await wait(PAUSE_DURATION);
+        if (signal.aborted) break;
+        setAutoPlayStatus(isPausedRef.current ? "Paused" : `Pause - Shadow sentence ${i + 1}...`);
+        await wait(PAUSE_DURATION, isPausedRef, signal);
 
         // Second play
-        if (abortControllerRef.current?.signal.aborted) break;
-        setAutoPlayStatus(`Playing sentence ${i + 1} (2nd time)`);
-        await playAudioAndWait(audioData);
+        if (signal.aborted) break;
+        setAutoPlayStatus(isPausedRef.current ? "Paused" : `Playing sentence ${i + 1} (2nd time)`);
+        await playAudioAndWait(audioData, isPausedRef, signal);
 
         // Pause before next sentence
         if (i < sentences.length - 1) {
-          if (abortControllerRef.current?.signal.aborted) break;
-          setAutoPlayStatus(`Pause - Shadow again...`);
-          await wait(PAUSE_DURATION);
+          if (signal.aborted) break;
+          setAutoPlayStatus(isPausedRef.current ? "Paused" : `Pause - Shadow again...`);
+          await wait(PAUSE_DURATION, isPausedRef, signal);
         }
       }
 
       // Check if we completed without being aborted
-      if (!abortControllerRef.current?.signal.aborted) {
+      if (!signal.aborted) {
         if (continuousMode && onPracticeComplete) {
           setAutoPlayStatus("Loading next theme...");
-          await wait(1000);
+          await wait(1000, isPausedRef, signal);
           onPracticeComplete();
           return; // Don't reset state, parent will handle it
         } else {
           setAutoPlayStatus("Completed!");
-          await wait(1000);
+          await wait(1000, isPausedRef, signal);
         }
       }
     } catch (error) {
@@ -314,6 +452,8 @@ export function PracticeView({
     } finally {
       if (!continuousMode || abortControllerRef.current?.signal.aborted) {
         setIsAutoPlaying(false);
+        setIsPaused(false);
+        isPausedRef.current = false;
         setAutoPlayStatus("");
       }
       abortControllerRef.current = null;
@@ -324,7 +464,14 @@ export function PracticeView({
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
+    // Also pause the shared audio
+    const audio = getSharedAudio();
+    if (audio) {
+      audio.pause();
+    }
     setIsAutoPlaying(false);
+    setIsPaused(false);
+    isPausedRef.current = false;
     setAutoPlayStatus("");
     if (continuousMode && onStopContinuous) {
       onStopContinuous();
@@ -339,6 +486,13 @@ export function PracticeView({
       }
     };
   }, []);
+
+  // Update status when paused/resumed
+  useEffect(() => {
+    if (isAutoPlaying && isPaused) {
+      setAutoPlayStatus("Paused");
+    }
+  }, [isPaused, isAutoPlaying]);
 
   // Auto-start when in continuous mode and script changes
   useEffect(() => {
@@ -472,7 +626,7 @@ export function PracticeView({
       <Card className="border-2 border-primary">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <RefreshCw className={`h-5 w-5 ${isAutoPlaying ? "animate-spin" : ""}`} />
+            <RefreshCw className={`h-5 w-5 ${isAutoPlaying && !isPaused ? "animate-spin" : ""}`} />
             Auto-Play Mode
           </CardTitle>
         </CardHeader>
@@ -481,20 +635,43 @@ export function PracticeView({
             Each sentence plays twice with pauses for shadowing practice.
           </p>
           {autoPlayStatus && (
-            <div className="p-3 bg-muted rounded-lg">
-              <p className="text-sm font-medium">{autoPlayStatus}</p>
+            <div className={`p-3 rounded-lg ${isPaused ? "bg-yellow-500/20" : "bg-muted"}`}>
+              <p className="text-sm font-medium">{isPaused ? "⏸ Paused" : autoPlayStatus}</p>
             </div>
           )}
           <div className="flex items-center gap-2">
             {isAutoPlaying ? (
-              <Button
-                onClick={stopAutoPlay}
-                variant="destructive"
-                className="flex-1"
-              >
-                <Square className="h-4 w-4 mr-2" />
-                Stop Auto-Play
-              </Button>
+              <>
+                {/* Pause/Resume button */}
+                {isPaused ? (
+                  <Button
+                    onClick={resumeAutoPlay}
+                    variant="default"
+                    className="flex-1"
+                  >
+                    <Play className="h-4 w-4 mr-2" />
+                    Resume
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={pauseAutoPlay}
+                    variant="secondary"
+                    className="flex-1"
+                  >
+                    <Pause className="h-4 w-4 mr-2" />
+                    Pause
+                  </Button>
+                )}
+                {/* Stop button */}
+                <Button
+                  onClick={stopAutoPlay}
+                  variant="destructive"
+                  size="icon"
+                  className="shrink-0"
+                >
+                  <Square className="h-4 w-4" />
+                </Button>
+              </>
             ) : (
               <Button
                 onClick={startAutoPlay}
