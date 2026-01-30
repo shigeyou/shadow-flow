@@ -55,9 +55,47 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Audio context for mobile compatibility
-let audioContext: AudioContext | null = null;
+// Shared audio element for background playback support
+let sharedAudio: HTMLAudioElement | null = null;
 let audioUnlocked = false;
+
+function getSharedAudio(): HTMLAudioElement {
+  if (!sharedAudio) {
+    sharedAudio = new Audio();
+    // Enable background playback
+    sharedAudio.setAttribute('playsinline', 'true');
+    sharedAudio.setAttribute('webkit-playsinline', 'true');
+  }
+  return sharedAudio;
+}
+
+// Setup Media Session for lock screen controls
+function setupMediaSession(title: string, onStop?: () => void) {
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: title,
+      artist: 'Shadow Flow',
+      album: 'English Shadowing Practice',
+    });
+
+    navigator.mediaSession.setActionHandler('pause', () => {
+      const audio = getSharedAudio();
+      audio.pause();
+      if (onStop) onStop();
+    });
+
+    navigator.mediaSession.setActionHandler('stop', () => {
+      const audio = getSharedAudio();
+      audio.pause();
+      if (onStop) onStop();
+    });
+
+    navigator.mediaSession.setActionHandler('play', () => {
+      const audio = getSharedAudio();
+      audio.play().catch(() => {});
+    });
+  }
+}
 
 // Unlock audio on user interaction (call this on button click)
 export function unlockAudio(): Promise<void> {
@@ -67,95 +105,78 @@ export function unlockAudio(): Promise<void> {
       return;
     }
 
-    // Create audio context
-    if (!audioContext) {
-      audioContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-    }
+    const audio = getSharedAudio();
 
-    // Resume audio context if suspended
-    if (audioContext.state === 'suspended') {
-      audioContext.resume().then(() => {
-        audioUnlocked = true;
-        console.log("Audio context unlocked");
-        resolve();
-      }).catch(() => {
-        resolve();
-      });
-    } else {
+    // Create a short silent audio to unlock
+    // Using a data URI for a tiny silent MP3
+    const silentAudio = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwmHAAAAAAD/+1DEAAAGAAGn9AAAIAAANIAAAARMQUx";
+
+    audio.src = silentAudio;
+    audio.play().then(() => {
       audioUnlocked = true;
+      console.log("Audio unlocked for background playback");
       resolve();
-    }
-
-    // Also create and play a silent buffer to unlock
-    try {
-      const buffer = audioContext.createBuffer(1, 1, 22050);
-      const source = audioContext.createBufferSource();
-      source.buffer = buffer;
-      source.connect(audioContext.destination);
-      source.start(0);
-    } catch (e) {
-      console.log("Silent buffer play failed:", e);
-    }
+    }).catch((e) => {
+      console.log("Audio unlock failed:", e);
+      resolve();
+    });
   });
 }
 
-// Helper to play audio and wait for it to finish using Web Audio API
+// Helper to play audio and wait for it to finish using HTML5 Audio (better for background)
 function playAudioAndWait(audioData: ArrayBuffer): Promise<void> {
-  return new Promise(async (resolve) => {
+  return new Promise((resolve) => {
+    const blob = new Blob([audioData], { type: "audio/mp3" });
+    const url = URL.createObjectURL(blob);
+    const audio = getSharedAudio();
+
+    let resolved = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanup = () => {
+      if (resolved) return;
+      resolved = true;
+      if (timeoutId) clearTimeout(timeoutId);
+      audio.onended = null;
+      audio.onerror = null;
+      audio.oncanplaythrough = null;
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      resolve();
+    };
+
+    audio.onended = cleanup;
+    audio.onerror = () => {
+      console.error("Audio playback error");
+      cleanup();
+    };
+
+    // Stop any current playback
     try {
-      // Ensure audio context exists
-      if (!audioContext) {
-        audioContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-      }
-
-      // Resume if suspended
-      if (audioContext.state === 'suspended') {
-        await audioContext.resume();
-      }
-
-      // Decode the audio data
-      const audioBuffer = await audioContext.decodeAudioData(audioData.slice(0));
-
-      // Create source and play
-      const source = audioContext.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(audioContext.destination);
-
-      source.onended = () => {
-        resolve();
-      };
-
-      source.start(0);
-
-      // Fallback timeout
-      setTimeout(() => {
-        resolve();
-      }, 30000);
-
-    } catch (error) {
-      console.error("Web Audio playback failed:", error);
-      // Fallback to HTML5 Audio
-      try {
-        const blob = new Blob([audioData], { type: "audio/mp3" });
-        const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
-
-        audio.onended = () => {
-          URL.revokeObjectURL(url);
-          resolve();
-        };
-
-        audio.onerror = () => {
-          URL.revokeObjectURL(url);
-          resolve();
-        };
-
-        await audio.play();
-      } catch (fallbackError) {
-        console.error("Fallback audio also failed:", fallbackError);
-        resolve();
-      }
+      audio.pause();
+      audio.currentTime = 0;
+    } catch (e) {
+      // Ignore
     }
+
+    audio.src = url;
+
+    audio.oncanplaythrough = () => {
+      audio.oncanplaythrough = null;
+      audio.play().catch((e) => {
+        console.error("Play failed:", e);
+        cleanup();
+      });
+    };
+
+    audio.load();
+
+    // Fallback timeout
+    timeoutId = setTimeout(() => {
+      if (!resolved) {
+        console.warn("Audio timeout");
+        cleanup();
+      }
+    }, 30000);
   });
 }
 
@@ -214,6 +235,16 @@ export function PracticeView({
 
     // Unlock audio for mobile browsers
     await unlockAudio();
+
+    // Setup media session for lock screen controls and background playback
+    setupMediaSession(script.theme, () => {
+      // On stop from lock screen
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      setIsAutoPlaying(false);
+      setAutoPlayStatus("");
+    });
 
     setIsAutoPlaying(true);
     abortControllerRef.current = new AbortController();
