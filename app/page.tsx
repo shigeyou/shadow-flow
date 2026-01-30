@@ -41,9 +41,16 @@ export default function Home() {
 
       const data = await response.json();
 
+      // Validate response has sentences
+      if (!data.sentences || !Array.isArray(data.sentences) || data.sentences.length === 0) {
+        throw new Error("Invalid response: no sentences generated");
+      }
+
       // Add new sentences to history for duplicate avoidance
-      if (theme.requiresSearch && data.sentences) {
-        const newTopics = data.sentences.map((s: { text: string }) => s.text);
+      if (theme.requiresSearch) {
+        const newTopics = data.sentences
+          .filter((s: { text?: string }) => s && s.text)
+          .map((s: { text: string }) => s.text);
         newsHistoryRef.current = [...newsHistoryRef.current, ...newTopics];
       }
 

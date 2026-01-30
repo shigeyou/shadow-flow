@@ -157,7 +157,9 @@ export function PracticeView({
   const audioPlayer = useAudioPlayer();
   const recorder = useRecorder();
 
-  const currentSentence = script.sentences[currentIndex];
+  // Guard against empty or invalid sentences array
+  const sentences = script.sentences || [];
+  const currentSentence = sentences[currentIndex] || { id: 0, text: "", translation: "" };
 
   // Pause duration (in ms) - time for user to shadow
   const PAUSE_DURATION = 3000;
@@ -189,11 +191,11 @@ export function PracticeView({
     abortControllerRef.current = new AbortController();
 
     try {
-      for (let i = 0; i < script.sentences.length; i++) {
+      for (let i = 0; i < sentences.length; i++) {
         // Check if aborted
         if (abortControllerRef.current?.signal.aborted) break;
 
-        const sentence = script.sentences[i];
+        const sentence = sentences[i];
         setCurrentIndex(i);
 
         // Generate audio once for this sentence
@@ -216,7 +218,7 @@ export function PracticeView({
         await playAudioAndWait(audioData);
 
         // Pause before next sentence
-        if (i < script.sentences.length - 1) {
+        if (i < sentences.length - 1) {
           if (abortControllerRef.current?.signal.aborted) break;
           setAutoPlayStatus(`Pause - Shadow again...`);
           await wait(PAUSE_DURATION);
@@ -244,7 +246,7 @@ export function PracticeView({
       }
       abortControllerRef.current = null;
     }
-  }, [script.sentences, speed, isAutoPlaying, continuousMode, onPracticeComplete]);
+  }, [sentences, speed, isAutoPlaying, continuousMode, onPracticeComplete]);
 
   const stopAutoPlay = useCallback(() => {
     if (abortControllerRef.current) {
@@ -303,7 +305,7 @@ export function PracticeView({
   };
 
   const handleNext = () => {
-    if (currentIndex < script.sentences.length - 1) {
+    if (currentIndex < sentences.length - 1) {
       setCurrentIndex(currentIndex + 1);
       recorder.clearRecording();
       audioPlayer.stop();
@@ -359,12 +361,12 @@ export function PracticeView({
           <div
             className="h-full bg-primary rounded-full transition-all"
             style={{
-              width: `${((currentIndex + 1) / script.sentences.length) * 100}%`,
+              width: `${((currentIndex + 1) / sentences.length) * 100}%`,
             }}
           />
         </div>
         <span className="text-sm font-medium">
-          {currentIndex + 1} / {script.sentences.length}
+          {currentIndex + 1} / {sentences.length}
         </span>
       </div>
 
@@ -569,7 +571,7 @@ export function PracticeView({
         </Button>
         <Button
           onClick={handleNext}
-          disabled={currentIndex === script.sentences.length - 1 || isAutoPlaying}
+          disabled={currentIndex === sentences.length - 1 || isAutoPlaying}
           className="flex-1"
         >
           Next
