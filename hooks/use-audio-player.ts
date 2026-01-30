@@ -51,6 +51,8 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
     }
 
     const audio = new Audio(url);
+    audio.setAttribute('playsinline', 'true');
+    audio.setAttribute('webkit-playsinline', 'true');
     audioRef.current = audio;
 
     audio.onloadedmetadata = () => {
@@ -66,8 +68,19 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
       setCurrentTime(0);
     };
 
-    audio.play();
-    setIsPlaying(true);
+    audio.onerror = (e) => {
+      console.error("Audio playback error:", e);
+      setIsPlaying(false);
+    };
+
+    audio.play()
+      .then(() => {
+        setIsPlaying(true);
+      })
+      .catch((error) => {
+        console.error("Failed to play audio:", error);
+        setIsPlaying(false);
+      });
   }, []);
 
   const pause = useCallback(() => {
