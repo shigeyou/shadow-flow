@@ -15,12 +15,15 @@ import {
   MessageCircle,
   Sparkles,
   Bot,
-  BookOpen,
-  Flag,
-  Newspaper,
   Cpu,
+  Flag,
+  Globe,
+  Building2,
+  Rocket,
   FlaskConical,
-  TrendingUp,
+  Leaf,
+  Coins,
+  BarChart3,
   Search,
   Repeat,
 } from "lucide-react";
@@ -32,6 +35,7 @@ interface ThemeSelectorProps {
 }
 
 const themeIcons: Record<string, React.ReactNode> = {
+  // Basic themes
   meeting: <Users className="h-5 w-5" />,
   business: <Briefcase className="h-5 w-5" />,
   restaurant: <Coffee className="h-5 w-5" />,
@@ -39,12 +43,19 @@ const themeIcons: Record<string, React.ReactNode> = {
   shopping: <ShoppingBag className="h-5 w-5" />,
   smalltalk: <MessageCircle className="h-5 w-5" />,
   japan: <Flag className="h-5 w-5" />,
-  "ai-trends": <Bot className="h-5 w-5" />,
-  "tech-news": <Cpu className="h-5 w-5" />,
-  bestsellers: <BookOpen className="h-5 w-5" />,
-  "japan-news": <Newspaper className="h-5 w-5" />,
-  science: <FlaskConical className="h-5 w-5" />,
-  "business-news": <TrendingUp className="h-5 w-5" />,
+  // Search themes (12 themes)
+  "ai-global": <Bot className="h-5 w-5" />,
+  "ai-japan": <Bot className="h-5 w-5" />,
+  "tech-global": <Cpu className="h-5 w-5" />,
+  "tech-japan": <Cpu className="h-5 w-5" />,
+  "economy-global": <Globe className="h-5 w-5" />,
+  "economy-japan": <Building2 className="h-5 w-5" />,
+  "startup-global": <Rocket className="h-5 w-5" />,
+  "startup-japan": <Rocket className="h-5 w-5" />,
+  "science-tech": <FlaskConical className="h-5 w-5" />,
+  "energy-environment": <Leaf className="h-5 w-5" />,
+  "finance-investment": <Coins className="h-5 w-5" />,
+  "business-trends": <BarChart3 className="h-5 w-5" />,
 };
 
 export function ThemeSelector({
@@ -139,7 +150,7 @@ export function ThemeSelector({
             className="w-full bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
           >
             <Repeat className="h-4 w-4 mr-2" />
-            {isLoading ? "Loading..." : "Continuous Learning Mode (All 6 Themes)"}
+            {isLoading ? "Loading..." : "Continuous Learning Mode (All 12 Themes)"}
           </Button>
         </CardContent>
       </Card>

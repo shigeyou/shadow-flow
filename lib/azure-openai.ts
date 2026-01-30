@@ -5,14 +5,28 @@ const apiKey = process.env.AZURE_OPENAI_KEY;
 const deployment = process.env.AZURE_OPENAI_DEPLOYMENT || "gpt-4o-mini";
 const apiVersion = "2024-08-01-preview";
 
+interface GenerateOptions {
+  theme: string;
+  searchContext?: string;
+  sentenceCount?: number;
+  excludeTopics?: string[];
+}
+
 export async function generateScript(
   theme: string,
-  searchContext?: string
+  searchContext?: string,
+  options?: { sentenceCount?: number; excludeTopics?: string[] }
 ): Promise<Script> {
   const hasSearchContext = !!searchContext;
+  const sentenceCount = options?.sentenceCount ?? (hasSearchContext ? 3 : 5);
+  const excludeTopics = options?.excludeTopics ?? [];
 
   const contextSection = searchContext
     ? `\n\n${searchContext}\n`
+    : "";
+
+  const excludeSection = excludeTopics.length > 0
+    ? `\nIMPORTANT: Do NOT use any of these topics that were already covered:\n${excludeTopics.map(t => `- ${t}`).join('\n')}\n\nChoose DIFFERENT news stories from the ones listed above.\n`
     : "";
 
   const specificRequirements = hasSearchContext
@@ -22,11 +36,11 @@ export async function generateScript(
 - Each sentence should teach the user about a REAL, CURRENT topic from the news
 - Do NOT write generic sentences - every sentence must reference specific information from the articles
 - Example: Instead of "AI is becoming more popular", write "OpenAI's GPT-5 was announced last week with impressive new capabilities"
-
+${excludeSection}
 `
     : "";
 
-  const prompt = `Generate 5 natural English sentences for shadowing practice on the theme: "${theme}".${contextSection}
+  const prompt = `Generate ${sentenceCount} natural English sentences for shadowing practice on the theme: "${theme}".${contextSection}
 
 ${specificRequirements}General Requirements:
 - Each sentence should be 10-20 words

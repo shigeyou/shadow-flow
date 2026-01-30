@@ -7,7 +7,7 @@ import {
 
 export async function POST(request: NextRequest) {
   try {
-    const { theme, requiresSearch, searchQuery } = await request.json();
+    const { theme, requiresSearch, searchQuery, excludeTopics } = await request.json();
 
     if (!theme || typeof theme !== "string") {
       return NextResponse.json(
@@ -38,7 +38,11 @@ export async function POST(request: NextRequest) {
       console.log("Search context length:", searchContext.length);
     }
 
-    const script = await generateScript(theme, searchContext);
+    // Pass excludeTopics to avoid duplicate news
+    const script = await generateScript(theme, searchContext, {
+      sentenceCount: requiresSearch ? 3 : 5,
+      excludeTopics: excludeTopics || [],
+    });
 
     // Add debug info in development or when debug param is present
     const url = new URL(request.url);

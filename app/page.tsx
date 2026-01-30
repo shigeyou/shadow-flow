@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { ThemeSelector } from "@/components/theme-selector";
 import { PracticeView } from "@/components/practice-view";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -16,7 +16,10 @@ export default function Home() {
   const [continuousMode, setContinuousMode] = useState(false);
   const [currentThemeIndex, setCurrentThemeIndex] = useState(0);
 
-  const loadTheme = useCallback(async (theme: Theme) => {
+  // History tracking to avoid duplicate news
+  const newsHistoryRef = useRef<string[]>([]);
+
+  const loadTheme = useCallback(async (theme: Theme, excludeTopics: string[] = []) => {
     setIsLoading(true);
     setError(null);
 
@@ -28,6 +31,7 @@ export default function Home() {
           theme: theme.name,
           requiresSearch: theme.requiresSearch,
           searchQuery: theme.searchQuery,
+          excludeTopics: excludeTopics,
         }),
       });
 
@@ -36,6 +40,13 @@ export default function Home() {
       }
 
       const data = await response.json();
+
+      // Add new sentences to history for duplicate avoidance
+      if (theme.requiresSearch && data.sentences) {
+        const newTopics = data.sentences.map((s: { text: string }) => s.text);
+        newsHistoryRef.current = [...newsHistoryRef.current, ...newTopics];
+      }
+
       setScript(data);
     } catch (err) {
       setError(
@@ -48,12 +59,14 @@ export default function Home() {
 
   const handleSelectTheme = async (theme: Theme) => {
     setContinuousMode(false);
+    newsHistoryRef.current = []; // Clear history for manual theme selection
     await loadTheme(theme);
   };
 
   const handleStartContinuousMode = async () => {
     setContinuousMode(true);
     setCurrentThemeIndex(0);
+    newsHistoryRef.current = []; // Clear history for new continuous session
     await loadTheme(SEARCH_THEMES[0]);
   };
 
@@ -62,7 +75,8 @@ export default function Home() {
 
     const nextIndex = (currentThemeIndex + 1) % SEARCH_THEMES.length;
     setCurrentThemeIndex(nextIndex);
-    await loadTheme(SEARCH_THEMES[nextIndex]);
+    // Pass current history to avoid duplicate news
+    await loadTheme(SEARCH_THEMES[nextIndex], newsHistoryRef.current);
   }, [continuousMode, currentThemeIndex, loadTheme]);
 
   const handleBack = () => {
@@ -70,6 +84,7 @@ export default function Home() {
     setError(null);
     setContinuousMode(false);
     setCurrentThemeIndex(0);
+    newsHistoryRef.current = []; // Clear history when going back
   };
 
   const handleStopContinuous = () => {
