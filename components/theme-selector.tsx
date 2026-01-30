@@ -85,35 +85,6 @@ export function ThemeSelector({
 
   return (
     <div className="space-y-6">
-      {/* Basic Themes */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Badge variant="secondary">Basic</Badge>
-            Conversation Themes
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {basicThemes.map((theme) => (
-              <Button
-                key={theme.id}
-                variant="outline"
-                className="h-auto py-4 flex flex-col items-center gap-2"
-                onClick={() => handlePresetSelect(theme)}
-                disabled={isLoading}
-              >
-                {themeIcons[theme.id]}
-                <span className="font-medium">{theme.nameJa}</span>
-                <span className="text-xs text-muted-foreground">
-                  {theme.name}
-                </span>
-              </Button>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Search-powered Themes */}
       <Card className="border-2 border-blue-500/30">
         <CardHeader>
@@ -175,6 +146,35 @@ export function ThemeSelector({
           >
             {isLoading ? "Generating..." : "Generate Script"}
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* Basic Themes */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Badge variant="secondary">Basic</Badge>
+            Conversation Themes
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {basicThemes.map((theme) => (
+              <Button
+                key={theme.id}
+                variant="outline"
+                className="h-auto py-4 flex flex-col items-center gap-2"
+                onClick={() => handlePresetSelect(theme)}
+                disabled={isLoading}
+              >
+                {themeIcons[theme.id]}
+                <span className="font-medium">{theme.nameJa}</span>
+                <span className="text-xs text-muted-foreground">
+                  {theme.name}
+                </span>
+              </Button>
+            ))}
+          </div>
         </CardContent>
       </Card>
     </div>
