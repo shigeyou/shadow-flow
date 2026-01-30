@@ -65,17 +65,24 @@ function getSharedAudio(): HTMLAudioElement {
 
 // Helper to play audio and wait for it to finish
 function playAudioAndWait(audioData: ArrayBuffer): Promise<void> {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const blob = new Blob([audioData], { type: "audio/mp3" });
     const url = URL.createObjectURL(blob);
     const audio = getSharedAudio();
 
-    // Clean up previous source
-    if (audio.src) {
-      URL.revokeObjectURL(audio.src);
-    }
+    let resolved = false;
+    let timeoutId: NodeJS.Timeout | null = null;
 
-    audio.src = url;
+    const cleanup = () => {
+      if (resolved) return;
+      resolved = true;
+      if (timeoutId) clearTimeout(timeoutId);
+      audio.removeEventListener("ended", onEnded);
+      audio.removeEventListener("error", onError);
+      audio.removeEventListener("canplaythrough", onCanPlay);
+      // Don't revoke URL immediately - let audio finish using it
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
 
     const onEnded = () => {
       cleanup();
@@ -83,28 +90,47 @@ function playAudioAndWait(audioData: ArrayBuffer): Promise<void> {
     };
 
     const onError = () => {
-      cleanup();
       console.error("Audio playback error");
-      resolve(); // Still resolve to continue the sequence
+      cleanup();
+      resolve();
     };
 
-    const cleanup = () => {
-      audio.removeEventListener("ended", onEnded);
-      audio.removeEventListener("error", onError);
+    const onCanPlay = () => {
+      audio.removeEventListener("canplaythrough", onCanPlay);
+
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((error) => {
+          console.error("Playback failed:", error);
+          cleanup();
+          resolve();
+        });
+      }
     };
+
+    // Clean up previous source
+    audio.pause();
+    if (audio.src) {
+      URL.revokeObjectURL(audio.src);
+    }
 
     audio.addEventListener("ended", onEnded);
     audio.addEventListener("error", onError);
+    audio.addEventListener("canplaythrough", onCanPlay);
 
-    // Handle mobile autoplay restrictions
-    const playPromise = audio.play();
-    if (playPromise !== undefined) {
-      playPromise.catch((error) => {
-        console.error("Playback failed:", error);
+    // Set source and load
+    audio.src = url;
+    audio.load();
+
+    // Fallback timeout: if audio doesn't end within 30 seconds, continue anyway
+    // This handles cases where ended event doesn't fire on mobile
+    timeoutId = setTimeout(() => {
+      if (!resolved) {
+        console.warn("Audio playback timeout - continuing");
         cleanup();
-        resolve(); // Continue even if playback fails
-      });
-    }
+        resolve();
+      }
+    }, 30000);
   });
 }
 
