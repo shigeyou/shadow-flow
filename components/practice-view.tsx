@@ -4,7 +4,8 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Script, Sentence, PLAYBACK_SPEEDS } from "@/types";
+import { Slider } from "@/components/ui/slider";
+import { Script, Sentence } from "@/types";
 import { useAudioPlayer } from "@/hooks/use-audio-player";
 import { useRecorder } from "@/hooks/use-recorder";
 import {
@@ -441,23 +442,24 @@ export function PracticeView({
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">Playback Speed</span>
-              <Badge variant="secondary">{speed}x</Badge>
+              <Badge variant="secondary" className="min-w-[4rem] text-center">{speed.toFixed(2)}x</Badge>
             </div>
-            <div className="flex items-center gap-2">
-              {PLAYBACK_SPEEDS.map((s) => (
-                <Button
-                  key={s}
-                  variant={speed === s ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => {
-                    setSpeed(s);
-                    audioPlayer.setPlaybackRate(s);
-                  }}
-                  disabled={isAutoPlaying}
-                >
-                  {s}x
-                </Button>
-              ))}
+            <div className="flex items-center gap-4">
+              <span className="text-xs text-muted-foreground">0.70x</span>
+              <Slider
+                value={[speed]}
+                onValueChange={(value) => {
+                  const newSpeed = value[0];
+                  setSpeed(newSpeed);
+                  audioPlayer.setPlaybackRate(newSpeed);
+                }}
+                min={0.7}
+                max={2.0}
+                step={0.05}
+                disabled={isAutoPlaying}
+                className="flex-1"
+              />
+              <span className="text-xs text-muted-foreground">2.00x</span>
             </div>
           </div>
         </CardContent>
