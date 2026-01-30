@@ -1,5 +1,8 @@
 import { test, expect } from "@playwright/test";
 
+// Tests that require API keys are skipped in CI
+const isCI = process.env.CI === "true";
+
 test.describe("Home Page", () => {
   test("should display the app title", async ({ page }) => {
     await page.goto("/");
@@ -41,7 +44,8 @@ test.describe("Home Page", () => {
 });
 
 test.describe("Theme Selection", () => {
-  test("should show loading state when selecting a theme", async ({ page }) => {
+  // Skip this test in CI as it requires API keys
+  (isCI ? test.skip : test)("should show loading state when selecting a theme", async ({ page }) => {
     await page.goto("/");
 
     // Click a basic theme button
@@ -56,7 +60,10 @@ test.describe("Theme Selection", () => {
   });
 });
 
+// These tests require API keys and are skipped in CI
 test.describe("Practice View", () => {
+  test.skip(isCI, "Skipping in CI - requires API keys");
+
   test("should navigate to practice view after theme selection", async ({ page }) => {
     await page.goto("/");
 
