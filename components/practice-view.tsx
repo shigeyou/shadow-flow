@@ -177,81 +177,96 @@ function playAudioAndWait(
 
     let resolved = false;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let loadTimeoutId: ReturnType<typeof setTimeout> | null = null;
     let pauseCheckInterval: ReturnType<typeof setInterval> | null = null;
     let hasStartedPlaying = false;
+    let readyToPlay = false;
 
     const cleanup = () => {
       if (resolved) return;
       resolved = true;
       if (timeoutId) clearTimeout(timeoutId);
+      if (loadTimeoutId) clearTimeout(loadTimeoutId);
       if (pauseCheckInterval) clearInterval(pauseCheckInterval);
       audio.onended = null;
       audio.onerror = null;
+      audio.oncanplay = null;
+      audio.oncanplaythrough = null;
       audio.onloadeddata = null;
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       resolve();
     };
 
-    audio.onended = () => {
-      if (hasStartedPlaying) {
-        cleanup();
-      }
-    };
-
-    audio.onerror = () => {
-      console.error("Audio playback error");
-      cleanup();
-    };
-
-    // Stop any current playback and reset
-    try {
-      audio.pause();
-      audio.currentTime = 0;
-      audio.onended = null;
-      audio.onerror = null;
-      audio.onloadeddata = null;
-    } catch (e) {
-      // Ignore
-    }
-
-    // Set up new handlers after reset
-    audio.onended = () => {
-      if (hasStartedPlaying) {
-        cleanup();
-      }
-    };
-
-    audio.onerror = () => {
-      console.error("Audio playback error");
-      cleanup();
-    };
-
-    const startPlayback = () => {
+    const tryPlay = () => {
       if (resolved || abortSignal?.aborted) {
         cleanup();
         return;
       }
 
-      // If paused, wait for resume
+      // If paused, don't start yet
       if (isPausedRef?.current) {
+        readyToPlay = true;
         return;
       }
 
+      if (hasStartedPlaying) return;
+
       hasStartedPlaying = true;
-      audio.play().catch((e) => {
-        console.error("Play failed:", e);
+      readyToPlay = true;
+
+      audio.play()
+        .then(() => {
+          console.log("Audio playback started successfully");
+        })
+        .catch((e) => {
+          console.error("Play failed:", e);
+          // Don't cleanup immediately - might be able to retry
+          hasStartedPlaying = false;
+        });
+    };
+
+    // Stop any current playback and clear ALL handlers FIRST
+    try {
+      audio.pause();
+      audio.currentTime = 0;
+    } catch (e) {
+      // Ignore
+    }
+
+    // Clear all existing handlers
+    audio.onended = null;
+    audio.onerror = null;
+    audio.oncanplay = null;
+    audio.oncanplaythrough = null;
+    audio.onloadeddata = null;
+    audio.onloadedmetadata = null;
+
+    // Set up ALL event handlers BEFORE setting src
+    audio.onended = () => {
+      console.log("Audio ended event fired, hasStartedPlaying:", hasStartedPlaying);
+      if (hasStartedPlaying) {
         cleanup();
-      });
+      }
     };
 
-    audio.src = url;
-
-    audio.onloadeddata = () => {
-      audio.onloadeddata = null;
-      startPlayback();
+    audio.onerror = (e) => {
+      console.error("Audio error event:", e);
+      cleanup();
     };
 
-    // Monitor pause state during playback - only handle pause/resume, don't auto-play
+    // Multiple events as fallback - any of these means we can try playing
+    const onReadyToPlay = () => {
+      console.log("Audio ready to play, readyState:", audio.readyState);
+      if (!hasStartedPlaying && !resolved) {
+        tryPlay();
+      }
+    };
+
+    audio.oncanplay = onReadyToPlay;
+    audio.oncanplaythrough = onReadyToPlay;
+    audio.onloadeddata = onReadyToPlay;
+
+    // Monitor pause state during playback
     if (isPausedRef) {
       let wasPaused = isPausedRef.current;
 
@@ -267,19 +282,17 @@ function playAudioAndWait(
 
         const isPaused = isPausedRef.current;
 
-        // Only act on state changes
         if (isPaused && !wasPaused) {
-          // Just paused - pause the audio
+          // Just paused
           if (!audio.paused && hasStartedPlaying) {
             audio.pause();
           }
         } else if (!isPaused && wasPaused) {
-          // Just resumed - resume the audio if it was playing
-          if (hasStartedPlaying && audio.paused && !audio.ended) {
+          // Just resumed
+          if (readyToPlay && !hasStartedPlaying) {
+            tryPlay();
+          } else if (hasStartedPlaying && audio.paused && !audio.ended) {
             audio.play().catch(() => {});
-          } else if (!hasStartedPlaying) {
-            // Hasn't started yet, try to start
-            startPlayback();
           }
         }
 
@@ -287,15 +300,29 @@ function playAudioAndWait(
       }, 100);
     }
 
+    // NOW set the src - this triggers loading
+    audio.src = url;
     audio.load();
 
-    // Fallback timeout (extended for pause support)
+    // Fallback: if no event fires within 2 seconds, try playing anyway
+    loadTimeoutId = setTimeout(() => {
+      console.log("Load timeout - attempting to play anyway, readyState:", audio.readyState);
+      if (!hasStartedPlaying && !resolved && audio.readyState >= 2) {
+        tryPlay();
+      } else if (!hasStartedPlaying && !resolved) {
+        // Even if not ready, try - browser might handle it
+        console.log("Force attempting playback despite low readyState");
+        tryPlay();
+      }
+    }, 2000);
+
+    // Overall timeout (extended for pause support)
     timeoutId = setTimeout(() => {
       if (!resolved) {
-        console.warn("Audio timeout");
+        console.warn("Audio overall timeout - cleaning up");
         cleanup();
       }
-    }, 120000); // 2 minutes max
+    }, 120000);
   });
 }
 
