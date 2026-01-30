@@ -76,13 +76,14 @@ export const PRESET_THEMES: Theme[] = [
   },
 
   // Knowledge-building themes (search-powered)
+  // Note: searchQuery will have today's date appended dynamically
   {
     id: "ai-trends",
     name: "AI Trends",
     nameJa: "AI最新動向",
     description: "Latest AI and machine learning news",
     requiresSearch: true,
-    searchQuery: "latest AI artificial intelligence news trends 2024",
+    searchQuery: "AI artificial intelligence news today",
   },
   {
     id: "tech-news",
@@ -90,7 +91,7 @@ export const PRESET_THEMES: Theme[] = [
     nameJa: "テックニュース",
     description: "Latest technology and startup news",
     requiresSearch: true,
-    searchQuery: "latest technology news startups innovation",
+    searchQuery: "technology startup news today",
   },
   {
     id: "bestsellers",
@@ -106,7 +107,7 @@ export const PRESET_THEMES: Theme[] = [
     nameJa: "日本ニュース",
     description: "Today's top news from Japan",
     requiresSearch: true,
-    searchQuery: "Japan news today headlines",
+    searchQuery: "Japan news today breaking",
   },
   {
     id: "science",
@@ -114,7 +115,7 @@ export const PRESET_THEMES: Theme[] = [
     nameJa: "科学ニュース",
     description: "Latest scientific discoveries and research",
     requiresSearch: true,
-    searchQuery: "latest science discoveries research news",
+    searchQuery: "science discovery research news today",
   },
   {
     id: "business-news",
@@ -122,7 +123,7 @@ export const PRESET_THEMES: Theme[] = [
     nameJa: "経済ニュース",
     description: "Latest business and economic news",
     requiresSearch: true,
-    searchQuery: "latest business economic news market trends",
+    searchQuery: "business economic market news today",
   },
 ];
 

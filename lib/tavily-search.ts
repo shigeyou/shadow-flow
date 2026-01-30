@@ -18,6 +18,16 @@ export async function searchWeb(query: string): Promise<TavilySearchResponse> {
     return { results: [] };
   }
 
+  // Add current date to query for better recency
+  const today = new Date();
+  const dateStr = today.toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
+  const enhancedQuery = `${query} ${dateStr}`;
+
+  console.log("Enhanced search query:", enhancedQuery);
+
   const response = await fetch("https://api.tavily.com/search", {
     method: "POST",
     headers: {
@@ -25,10 +35,11 @@ export async function searchWeb(query: string): Promise<TavilySearchResponse> {
     },
     body: JSON.stringify({
       api_key: apiKey,
-      query,
-      search_depth: "basic",
+      query: enhancedQuery,
+      search_depth: "advanced", // Use advanced for better results
       include_answer: true,
       max_results: 5,
+      days: 2, // Only get results from last 48 hours
     }),
   });
 
