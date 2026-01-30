@@ -71,6 +71,7 @@ function playAudioAndWait(audioData: ArrayBuffer): Promise<void> {
     const audio = getSharedAudio();
 
     let resolved = false;
+    let playAttempted = false;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
     const doResolve = () => {
@@ -83,6 +84,7 @@ function playAudioAndWait(audioData: ArrayBuffer): Promise<void> {
       audio.onended = null;
       audio.onerror = null;
       audio.oncanplaythrough = null;
+      audio.onloadeddata = null;
       // Delay URL cleanup
       setTimeout(() => {
         try {
@@ -94,15 +96,10 @@ function playAudioAndWait(audioData: ArrayBuffer): Promise<void> {
       resolve();
     };
 
-    // Use property-based event handlers (more reliable on mobile)
-    audio.onended = doResolve;
-    audio.onerror = () => {
-      console.error("Audio playback error");
-      doResolve();
-    };
+    const tryPlay = () => {
+      if (playAttempted || resolved) return;
+      playAttempted = true;
 
-    audio.oncanplaythrough = () => {
-      audio.oncanplaythrough = null;
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch((error) => {
@@ -111,6 +108,17 @@ function playAudioAndWait(audioData: ArrayBuffer): Promise<void> {
         });
       }
     };
+
+    // Use property-based event handlers (more reliable on mobile)
+    audio.onended = doResolve;
+    audio.onerror = () => {
+      console.error("Audio playback error");
+      doResolve();
+    };
+
+    // Try both events for better mobile compatibility
+    audio.oncanplaythrough = tryPlay;
+    audio.onloadeddata = tryPlay;
 
     // Clean up previous source
     try {
@@ -123,6 +131,14 @@ function playAudioAndWait(audioData: ArrayBuffer): Promise<void> {
     // Set source and load
     audio.src = url;
     audio.load();
+
+    // Try to play after a short delay as fallback
+    setTimeout(() => {
+      if (!playAttempted && !resolved) {
+        console.log("Attempting fallback play");
+        tryPlay();
+      }
+    }, 500);
 
     // Fallback timeout
     timeoutId = setTimeout(() => {
@@ -191,11 +207,24 @@ export function PracticeView({
     abortControllerRef.current = new AbortController();
 
     try {
+      // Skip if no valid sentences
+      if (sentences.length === 0) {
+        console.warn("No sentences to play");
+        return;
+      }
+
       for (let i = 0; i < sentences.length; i++) {
         // Check if aborted
         if (abortControllerRef.current?.signal.aborted) break;
 
         const sentence = sentences[i];
+
+        // Skip invalid sentences
+        if (!sentence || !sentence.text) {
+          console.warn(`Skipping invalid sentence at index ${i}`);
+          continue;
+        }
+
         setCurrentIndex(i);
 
         // Generate audio once for this sentence
