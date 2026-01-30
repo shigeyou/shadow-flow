@@ -178,6 +178,7 @@ function playAudioAndWait(
     let resolved = false;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     let pauseCheckInterval: ReturnType<typeof setInterval> | null = null;
+    let hasStartedPlaying = false;
 
     const cleanup = () => {
       if (resolved) return;
@@ -186,58 +187,74 @@ function playAudioAndWait(
       if (pauseCheckInterval) clearInterval(pauseCheckInterval);
       audio.onended = null;
       audio.onerror = null;
-      audio.oncanplaythrough = null;
+      audio.onloadeddata = null;
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       resolve();
     };
 
-    audio.onended = cleanup;
+    audio.onended = () => {
+      if (hasStartedPlaying) {
+        cleanup();
+      }
+    };
+
     audio.onerror = () => {
       console.error("Audio playback error");
       cleanup();
     };
 
-    // Stop any current playback
+    // Stop any current playback and reset
     try {
       audio.pause();
       audio.currentTime = 0;
+      audio.onended = null;
+      audio.onerror = null;
+      audio.onloadeddata = null;
     } catch (e) {
       // Ignore
     }
 
-    audio.src = url;
+    // Set up new handlers after reset
+    audio.onended = () => {
+      if (hasStartedPlaying) {
+        cleanup();
+      }
+    };
 
-    audio.oncanplaythrough = () => {
-      audio.oncanplaythrough = null;
+    audio.onerror = () => {
+      console.error("Audio playback error");
+      cleanup();
+    };
 
-      // Check pause state before playing
-      if (isPausedRef?.current) {
-        // Wait until unpaused to start playing
-        const waitForUnpause = setInterval(() => {
-          if (abortSignal?.aborted) {
-            clearInterval(waitForUnpause);
-            cleanup();
-            return;
-          }
-          if (!isPausedRef.current) {
-            clearInterval(waitForUnpause);
-            audio.play().catch((e) => {
-              console.error("Play failed:", e);
-              cleanup();
-            });
-          }
-        }, 100);
+    const startPlayback = () => {
+      if (resolved || abortSignal?.aborted) {
+        cleanup();
         return;
       }
 
+      // If paused, wait for resume
+      if (isPausedRef?.current) {
+        return;
+      }
+
+      hasStartedPlaying = true;
       audio.play().catch((e) => {
         console.error("Play failed:", e);
         cleanup();
       });
     };
 
-    // Monitor pause state during playback
+    audio.src = url;
+
+    audio.onloadeddata = () => {
+      audio.onloadeddata = null;
+      startPlayback();
+    };
+
+    // Monitor pause state during playback - only handle pause/resume, don't auto-play
     if (isPausedRef) {
+      let wasPaused = isPausedRef.current;
+
       pauseCheckInterval = setInterval(() => {
         if (abortSignal?.aborted) {
           cleanup();
@@ -247,11 +264,26 @@ function playAudioAndWait(
           if (pauseCheckInterval) clearInterval(pauseCheckInterval);
           return;
         }
-        if (isPausedRef.current && !audio.paused) {
-          audio.pause();
-        } else if (!isPausedRef.current && audio.paused && !audio.ended) {
-          audio.play().catch(() => {});
+
+        const isPaused = isPausedRef.current;
+
+        // Only act on state changes
+        if (isPaused && !wasPaused) {
+          // Just paused - pause the audio
+          if (!audio.paused && hasStartedPlaying) {
+            audio.pause();
+          }
+        } else if (!isPaused && wasPaused) {
+          // Just resumed - resume the audio if it was playing
+          if (hasStartedPlaying && audio.paused && !audio.ended) {
+            audio.play().catch(() => {});
+          } else if (!hasStartedPlaying) {
+            // Hasn't started yet, try to start
+            startPlayback();
+          }
         }
+
+        wasPaused = isPaused;
       }, 100);
     }
 
