@@ -18,8 +18,8 @@ test.describe("Home Page", () => {
   test("should display search-powered themes section", async ({ page }) => {
     await page.goto("/");
 
-    // Check for Knowledge Building section
-    await expect(page.getByText("Knowledge Building")).toBeVisible();
+    // Check for Latest News section
+    await expect(page.getByText("Latest News and Trends from the Internet")).toBeVisible();
     await expect(page.getByRole("button", { name: /Continuous Learning Mode/i })).toBeVisible();
   });
 
