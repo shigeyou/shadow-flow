@@ -95,6 +95,14 @@ export function ThemeSelector({
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          <Button
+            onClick={onStartContinuousMode}
+            disabled={isLoading}
+            className="w-full bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
+          >
+            <Repeat className="h-4 w-4 mr-2" />
+            {isLoading ? "Loading..." : "Continuous Learning Mode (All 12 Themes)"}
+          </Button>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             {searchThemes.map((theme) => (
               <Button
@@ -112,14 +120,6 @@ export function ThemeSelector({
               </Button>
             ))}
           </div>
-          <Button
-            onClick={onStartContinuousMode}
-            disabled={isLoading}
-            className="w-full bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600"
-          >
-            <Repeat className="h-4 w-4 mr-2" />
-            {isLoading ? "Loading..." : "Continuous Learning Mode (All 12 Themes)"}
-          </Button>
         </CardContent>
       </Card>
 
