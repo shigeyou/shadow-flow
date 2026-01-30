@@ -71,64 +71,64 @@ function playAudioAndWait(audioData: ArrayBuffer): Promise<void> {
     const audio = getSharedAudio();
 
     let resolved = false;
-    let timeoutId: NodeJS.Timeout | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-    const cleanup = () => {
+    const doResolve = () => {
       if (resolved) return;
       resolved = true;
-      if (timeoutId) clearTimeout(timeoutId);
-      audio.removeEventListener("ended", onEnded);
-      audio.removeEventListener("error", onError);
-      audio.removeEventListener("canplaythrough", onCanPlay);
-      // Don't revoke URL immediately - let audio finish using it
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    };
-
-    const onEnded = () => {
-      cleanup();
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      audio.onended = null;
+      audio.onerror = null;
+      audio.oncanplaythrough = null;
+      // Delay URL cleanup
+      setTimeout(() => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch (e) {
+          // Ignore errors
+        }
+      }, 1000);
       resolve();
     };
 
-    const onError = () => {
+    // Use property-based event handlers (more reliable on mobile)
+    audio.onended = doResolve;
+    audio.onerror = () => {
       console.error("Audio playback error");
-      cleanup();
-      resolve();
+      doResolve();
     };
 
-    const onCanPlay = () => {
-      audio.removeEventListener("canplaythrough", onCanPlay);
-
+    audio.oncanplaythrough = () => {
+      audio.oncanplaythrough = null;
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch((error) => {
           console.error("Playback failed:", error);
-          cleanup();
-          resolve();
+          doResolve();
         });
       }
     };
 
     // Clean up previous source
-    audio.pause();
-    if (audio.src) {
-      URL.revokeObjectURL(audio.src);
+    try {
+      audio.pause();
+      audio.currentTime = 0;
+    } catch (e) {
+      // Ignore errors
     }
-
-    audio.addEventListener("ended", onEnded);
-    audio.addEventListener("error", onError);
-    audio.addEventListener("canplaythrough", onCanPlay);
 
     // Set source and load
     audio.src = url;
     audio.load();
 
-    // Fallback timeout: if audio doesn't end within 30 seconds, continue anyway
-    // This handles cases where ended event doesn't fire on mobile
+    // Fallback timeout
     timeoutId = setTimeout(() => {
       if (!resolved) {
         console.warn("Audio playback timeout - continuing");
-        cleanup();
-        resolve();
+        doResolve();
       }
     }, 30000);
   });
