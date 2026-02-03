@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { ThemeSelector } from "@/components/theme-selector";
 import { PracticeView, unlockAudio } from "@/components/practice-view";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Script, Theme, PRESET_THEMES } from "@/types";
 import { Headphones } from "lucide-react";
+import { usePrefetch } from "@/hooks/use-prefetch";
 
 const SEARCH_THEMES = PRESET_THEMES.filter((t) => t.requiresSearch);
 
@@ -15,35 +16,80 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [continuousMode, setContinuousMode] = useState(false);
   const [currentThemeIndex, setCurrentThemeIndex] = useState(0);
+  const [currentSpeed, setCurrentSpeed] = useState(1.0);
 
   // History tracking to avoid duplicate news
   const newsHistoryRef = useRef<string[]>([]);
 
-  const loadTheme = useCallback(async (theme: Theme, excludeTopics: string[] = []) => {
+  // Prefetch hook for background loading
+  const prefetch = usePrefetch({ newsHistory: newsHistoryRef.current });
+
+  // Prefetch next theme when current index changes in continuous mode
+  useEffect(() => {
+    if (continuousMode && script) {
+      const nextIndex = (currentThemeIndex + 1) % SEARCH_THEMES.length;
+      const nextTheme = SEARCH_THEMES[nextIndex];
+
+      // Start prefetching next theme's script in background
+      console.log(`[Page] Prefetching next theme: ${nextTheme.name}`);
+      prefetch.prefetchScript(nextTheme, newsHistoryRef.current);
+    }
+  }, [continuousMode, currentThemeIndex, script, prefetch]);
+
+  // Prefetch TTS when script changes
+  useEffect(() => {
+    if (script && script.sentences.length > 0) {
+      console.log(`[Page] Prefetching TTS for ${script.sentences.length} sentences`);
+      prefetch.prefetchAllTts(script.sentences, currentSpeed);
+    }
+  }, [script, currentSpeed, prefetch]);
+
+  const loadTheme = useCallback(async (theme: Theme, excludeTopics: string[] = [], usePrefetchCache = false) => {
     setIsLoading(true);
     setError(null);
 
     try {
-      const response = await fetch("/api/generate-script", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          theme: theme.name,
-          requiresSearch: theme.requiresSearch,
-          searchQuery: theme.searchQuery,
-          excludeTopics: excludeTopics,
-        }),
-      });
+      let data: Script | null = null;
 
-      if (!response.ok) {
-        throw new Error("Failed to generate script");
+      // Try to use prefetch cache first
+      if (usePrefetchCache) {
+        data = await prefetch.waitForScript(theme.name);
+        if (data) {
+          console.log(`[Page] Using prefetched script for: ${theme.name}`);
+          // Clear the cache since we're using it now (next time we need fresh content)
+          prefetch.clearScriptCache(theme.name);
+        }
       }
 
-      const data = await response.json();
+      // If no cache, fetch normally
+      if (!data) {
+        console.log(`[Page] Fetching script for: ${theme.name}`);
+        const response = await fetch("/api/generate-script", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            theme: theme.name,
+            requiresSearch: theme.requiresSearch,
+            searchQuery: theme.searchQuery,
+            excludeTopics: excludeTopics,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to generate script");
+        }
+
+        data = await response.json();
+      }
 
       // Validate response has sentences
-      if (!data.sentences || !Array.isArray(data.sentences) || data.sentences.length === 0) {
+      if (!data || !data.sentences || !Array.isArray(data.sentences) || data.sentences.length === 0) {
         throw new Error("Invalid response: no sentences generated");
+      }
+
+      // Check for fallback error message
+      if (data.sentences.length === 1 && data.sentences[0].text?.includes("Could not generate")) {
+        throw new Error("Failed to generate sentences. Please try again.");
       }
 
       // Add new sentences to history for duplicate avoidance
@@ -62,7 +108,7 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [prefetch]);
 
   const handleSelectTheme = async (theme: Theme) => {
     setContinuousMode(false);
@@ -85,9 +131,14 @@ export default function Home() {
 
     const nextIndex = (currentThemeIndex + 1) % SEARCH_THEMES.length;
     setCurrentThemeIndex(nextIndex);
-    // Pass current history to avoid duplicate news
-    await loadTheme(SEARCH_THEMES[nextIndex], newsHistoryRef.current);
+    // Use prefetch cache for faster loading
+    await loadTheme(SEARCH_THEMES[nextIndex], newsHistoryRef.current, true);
   }, [continuousMode, currentThemeIndex, loadTheme]);
+
+  // Handle speed change from practice view
+  const handleSpeedChange = useCallback((newSpeed: number) => {
+    setCurrentSpeed(newSpeed);
+  }, []);
 
   const handleBack = () => {
     setScript(null);
@@ -139,6 +190,8 @@ export default function Home() {
             onStopContinuous={handleStopContinuous}
             currentThemeIndex={currentThemeIndex}
             totalThemes={SEARCH_THEMES.length}
+            getOrFetchTts={prefetch.getOrFetchTts}
+            onSpeedChange={handleSpeedChange}
           />
         ) : (
           <ThemeSelector

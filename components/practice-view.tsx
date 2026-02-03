@@ -30,6 +30,8 @@ interface PracticeViewProps {
   onStopContinuous?: () => void;
   currentThemeIndex?: number;
   totalThemes?: number;
+  getOrFetchTts?: (text: string, rate: number) => Promise<ArrayBuffer | null>;
+  onSpeedChange?: (speed: number) => void;
 }
 
 async function synthesizeSpeech(
@@ -84,12 +86,125 @@ function wait(ms: number, isPausedRef: React.RefObject<boolean>, abortSignal?: A
 let sharedAudio: HTMLAudioElement | null = null;
 let audioUnlocked = false;
 
+// Audio context for trimming silence
+let audioContext: AudioContext | null = null;
+
+function getAudioContext(): AudioContext {
+  if (!audioContext) {
+    audioContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+  }
+  return audioContext;
+}
+
+// Trim leading silence from audio buffer
+async function trimLeadingSilence(audioData: ArrayBuffer): Promise<ArrayBuffer> {
+  try {
+    const ctx = getAudioContext();
+    const audioBuffer = await ctx.decodeAudioData(audioData.slice(0));
+
+    // Find the first non-silent sample
+    const channelData = audioBuffer.getChannelData(0);
+    const threshold = 0.01; // Silence threshold
+    let startSample = 0;
+
+    // Look for first non-silent sample (check first 0.5 seconds max)
+    const maxSamplesToCheck = Math.min(channelData.length, audioBuffer.sampleRate * 0.5);
+    for (let i = 0; i < maxSamplesToCheck; i++) {
+      if (Math.abs(channelData[i]) > threshold) {
+        // Start a bit before the first sound for natural onset
+        startSample = Math.max(0, i - Math.floor(audioBuffer.sampleRate * 0.02));
+        break;
+      }
+    }
+
+    if (startSample === 0) {
+      // No silence to trim
+      return audioData;
+    }
+
+    console.log(`[Audio] Trimming ${(startSample / audioBuffer.sampleRate * 1000).toFixed(0)}ms of leading silence`);
+
+    // Create new buffer without leading silence
+    const newLength = audioBuffer.length - startSample;
+    const newBuffer = ctx.createBuffer(
+      audioBuffer.numberOfChannels,
+      newLength,
+      audioBuffer.sampleRate
+    );
+
+    for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+      const oldData = audioBuffer.getChannelData(channel);
+      const newData = newBuffer.getChannelData(channel);
+      for (let i = 0; i < newLength; i++) {
+        newData[i] = oldData[i + startSample];
+      }
+    }
+
+    // Encode back to WAV (simpler than MP3)
+    return encodeWav(newBuffer);
+  } catch (error) {
+    console.warn("[Audio] Failed to trim silence, using original:", error);
+    return audioData;
+  }
+}
+
+// Encode AudioBuffer to WAV format
+function encodeWav(audioBuffer: AudioBuffer): ArrayBuffer {
+  const numChannels = audioBuffer.numberOfChannels;
+  const sampleRate = audioBuffer.sampleRate;
+  const format = 1; // PCM
+  const bitDepth = 16;
+
+  const bytesPerSample = bitDepth / 8;
+  const blockAlign = numChannels * bytesPerSample;
+
+  const samples = audioBuffer.length;
+  const dataSize = samples * blockAlign;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  // WAV header
+  const writeString = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) {
+      view.setUint8(offset + i, str.charCodeAt(i));
+    }
+  };
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, format, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * blockAlign, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitDepth, true);
+  writeString(36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  // Write audio data
+  let offset = 44;
+  for (let i = 0; i < samples; i++) {
+    for (let channel = 0; channel < numChannels; channel++) {
+      const sample = Math.max(-1, Math.min(1, audioBuffer.getChannelData(channel)[i]));
+      const intSample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+      view.setInt16(offset, intSample, true);
+      offset += 2;
+    }
+  }
+
+  return buffer;
+}
+
 function getSharedAudio(): HTMLAudioElement {
   if (!sharedAudio) {
     sharedAudio = new Audio();
     // Enable background playback
     sharedAudio.setAttribute('playsinline', 'true');
     sharedAudio.setAttribute('webkit-playsinline', 'true');
+    sharedAudio.preload = 'auto';
   }
   return sharedAudio;
 }
@@ -165,13 +280,19 @@ export function unlockAudio(): Promise<void> {
 
 // Helper to play audio and wait for it to finish using HTML5 Audio (better for background)
 // Supports pause/resume via isPausedRef
-function playAudioAndWait(
+async function playAudioAndWait(
   audioData: ArrayBuffer,
   isPausedRef?: React.RefObject<boolean>,
   abortSignal?: AbortSignal
 ): Promise<void> {
+  // Trim leading silence for immediate playback
+  const trimmedData = await trimLeadingSilence(audioData);
+
   return new Promise((resolve) => {
-    const blob = new Blob([audioData], { type: "audio/mp3" });
+    // Detect format based on trimmed data (WAV if trimmed, MP3 if not)
+    const isWav = trimmedData !== audioData;
+    const mimeType = isWav ? "audio/wav" : "audio/mpeg";
+    const blob = new Blob([trimmedData], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const audio = getSharedAudio();
 
@@ -334,6 +455,8 @@ export function PracticeView({
   onStopContinuous,
   currentThemeIndex = 0,
   totalThemes = 1,
+  getOrFetchTts,
+  onSpeedChange,
 }: PracticeViewProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [speed, setSpeed] = useState(1.0);
@@ -359,11 +482,24 @@ export function PracticeView({
   // Pause duration (in ms) - time for user to shadow
   const PAUSE_DURATION = 3000;
 
+  // Helper to get TTS audio (uses cache if available)
+  const getTtsAudio = useCallback(
+    async (text: string, rate: number): Promise<ArrayBuffer> => {
+      if (getOrFetchTts) {
+        const cached = await getOrFetchTts(text, rate);
+        if (cached) return cached;
+      }
+      // Fallback to direct fetch
+      return synthesizeSpeech(text, rate);
+    },
+    [getOrFetchTts]
+  );
+
   const handlePlaySentence = useCallback(
     async (sentence: Sentence) => {
       try {
         setIsGeneratingAudio(true);
-        const audioData = await synthesizeSpeech(sentence.text, speed);
+        const audioData = await getTtsAudio(sentence.text, speed);
         audioPlayer.play(audioData);
       } catch (error) {
         console.error("Failed to synthesize speech:", error);
@@ -372,7 +508,7 @@ export function PracticeView({
         setIsGeneratingAudio(false);
       }
     },
-    [audioPlayer, speed]
+    [audioPlayer, speed, getTtsAudio]
   );
 
   // Pause/Resume callbacks
@@ -467,9 +603,9 @@ export function PracticeView({
 
         setCurrentIndex(i);
 
-        // Generate audio once for this sentence
-        setAutoPlayStatus(`Generating audio for sentence ${i + 1}...`);
-        const audioData = await synthesizeSpeech(sentence.text, speed);
+        // Generate audio once for this sentence (uses cache if available)
+        setAutoPlayStatus(`Loading audio for sentence ${i + 1}...`);
+        const audioData = await getTtsAudio(sentence.text, speed);
 
         // First play
         if (signal.aborted) break;
@@ -517,7 +653,7 @@ export function PracticeView({
       }
       abortControllerRef.current = null;
     }
-  }, [sentences, speed, isAutoPlaying, continuousMode, onPracticeComplete]);
+  }, [sentences, speed, isAutoPlaying, continuousMode, onPracticeComplete, getTtsAudio]);
 
   const stopAutoPlay = useCallback(() => {
     if (abortControllerRef.current) {
@@ -685,7 +821,7 @@ export function PracticeView({
       <Card className="border-2 border-primary">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <RefreshCw className={`h-5 w-5 ${isAutoPlaying && !isPaused ? "animate-spin" : ""}`} />
+            <RefreshCw className={`h-5 w-5 ${isAutoPlaying && !isPaused && autoPlayStatus.includes("Playing") ? "animate-spin" : ""}`} />
             Auto-Play Mode
           </CardTitle>
         </CardHeader>
@@ -760,8 +896,10 @@ export function PracticeView({
                 className="h-10 w-10 shrink-0"
                 onClick={() => {
                   const newSpeed = Math.max(0.7, speed - 0.05);
-                  setSpeed(Math.round(newSpeed * 100) / 100);
-                  audioPlayer.setPlaybackRate(newSpeed);
+                  const roundedSpeed = Math.round(newSpeed * 100) / 100;
+                  setSpeed(roundedSpeed);
+                  audioPlayer.setPlaybackRate(roundedSpeed);
+                  onSpeedChange?.(roundedSpeed);
                 }}
               >
                 <Minus className="h-4 w-4" />
@@ -773,6 +911,7 @@ export function PracticeView({
                   const newSpeed = parseFloat(e.target.value);
                   setSpeed(newSpeed);
                   audioPlayer.setPlaybackRate(newSpeed);
+                  onSpeedChange?.(newSpeed);
                 }}
                 min={0.7}
                 max={2.0}
@@ -786,8 +925,10 @@ export function PracticeView({
                 className="h-10 w-10 shrink-0"
                 onClick={() => {
                   const newSpeed = Math.min(2.0, speed + 0.05);
-                  setSpeed(Math.round(newSpeed * 100) / 100);
-                  audioPlayer.setPlaybackRate(newSpeed);
+                  const roundedSpeed = Math.round(newSpeed * 100) / 100;
+                  setSpeed(roundedSpeed);
+                  audioPlayer.setPlaybackRate(roundedSpeed);
+                  onSpeedChange?.(roundedSpeed);
                 }}
               >
                 <Plus className="h-4 w-4" />

@@ -27,6 +27,7 @@ export async function POST(request: NextRequest) {
     const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US"><voice name="en-US-AvaMultilingualNeural"><prosody rate="${rateStr}">${escapeXml(text)}</prosody></voice></speak>`;
 
     // Call Azure TTS REST API
+    // Use higher quality format with less encoding latency
     const endpoint = `https://${speechRegion}.tts.speech.microsoft.com/cognitiveservices/v1`;
 
     const response = await fetch(endpoint, {
@@ -34,7 +35,8 @@ export async function POST(request: NextRequest) {
       headers: {
         "Ocp-Apim-Subscription-Key": speechKey,
         "Content-Type": "application/ssml+xml",
-        "X-Microsoft-OutputFormat": "audio-16khz-128kbitrate-mono-mp3",
+        // Use 24kHz for better quality and reduced initial silence
+        "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3",
       },
       body: ssml,
     });
